@@ -30,39 +30,50 @@ async function checkLatestDeaths(client) {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
 
     console.log('🌐 Accediendo a Rubinot Deaths...');
-    await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle0', timeout: 60000 });
+    // Intentar entrar enviando el parámetro por URL directamente
+    await page.goto('https://rubinot.com.br/deaths?world=Eldrian', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 1. Forzar la selección del mundo Eldrian en el formulario
-    const selectSelector = 'select[name="world"], select';
-    const hasSelect = await page.$(selectSelector);
-    if (hasSelect) {
-      await page.select(selectSelector, 'Eldrian').catch(() => {});
-      // Esperar a que los datos AJAX del desplegable terminen de cargar
-      await new Promise(r => setTimeout(r, 4000));
-    }
+    // Esperar a que la página base cargue
+    await new Promise(r => setTimeout(r, 2000));
 
-    // 2. Extraer los datos buscando filas generales o contenedores dinámicos
+    // Si existe el desplegable, cambiarlo y forzar el evento CHANGE
+    await page.evaluate(() => {
+      const selects = Array.from(document.querySelectorAll('select'));
+      selects.forEach(select => {
+        for (let option of select.options) {
+          if (option.text.toLowerCase().includes('eldrian') || option.value.toLowerCase().includes('eldrian')) {
+            select.value = option.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            break;
+          }
+        }
+      });
+    });
+
+    // Esperar 4 segundos a que la tabla se re-renderice
+    await new Promise(r => setTimeout(r, 4000));
+
+    // Extraer cualquier fila, celda o lista relevante de la pantalla
     const deaths = await page.evaluate(() => {
       const result = [];
-      // Buscar elementos de tabla o contenedores flex/grid habitualmente usados
-      const elements = Array.from(document.querySelectorAll('table tr, .table-row, div[class*="death"]'));
+      
+      // Buscar en cualquier elemento que contenga texto de muertes
+      const allElements = Array.from(document.querySelectorAll('table tr, tr, .row, .list-group-item, div'));
 
-      elements.forEach((el) => {
+      allElements.forEach(el => {
+        // Solo tomar nodos hoja o elementos con texto directo
         const text = el.innerText ? el.innerText.trim() : '';
-        // Validar si la fila contiene texto relevante de muertes
-        if (text && (text.includes('murió') || text.includes('died') || text.includes('Killed') || text.includes('Level') || text.includes('nivel'))) {
-          const parts = text.split('\n').map(p => p.trim()).filter(Boolean);
+        
+        // Criterio de filtrado de muerte en Rubinot/Tibia
+        if (text && (text.includes('Died at') || text.includes('Killed at') || text.includes('murió a nivel') || text.includes('died at level'))) {
+          // Limpiar saltos de línea excesivos
+          const cleanText = text.replace(/\s+/g, ' ');
           
-          let time = 'Reciente';
-          let description = text.replace(/\s+/g, ' ');
-
-          if (parts.length >= 2) {
-            time = parts[0];
-            description = parts.slice(1).join(' ');
+          // Evitar guardar duplicados de contenedores padre
+          if (!result.some(r => r.description.includes(cleanText))) {
+            const deathId = cleanText;
+            result.push({ time: 'Reciente', description: cleanText, deathId });
           }
-
-          const deathId = `${time}_${description}`;
-          result.push({ time, description, deathId });
         }
       });
 
@@ -71,14 +82,20 @@ async function checkLatestDeaths(client) {
 
     console.log(`📊 Muertes obtenidas con Puppeteer: ${deaths.length}`);
 
-    // Si es la primera ejecución, memorizar para no duplicar antiguas
+    // Si no encontró nada con el filtro escrito, imprimir un fragmento para depuración
+    if (deaths.length === 0) {
+      const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300));
+      console.log('⚠️ No se detectaron muertes. Vista previa del texto de la página:', bodyText.replace(/\s+/g, ' '));
+    }
+
+    // Inicializar memoria en el primer ciclo
     if (processedDeaths.size === 0 && deaths.length > 0) {
       deaths.forEach(d => processedDeaths.add(d.deathId));
       console.log('✅ Historial inicial de muertes memorizado correctamente.');
       return;
     }
 
-    // Publicar muertes nuevas en Discord
+    // Enviar las muertes nuevas a Discord
     for (const death of deaths.reverse()) {
       if (!processedDeaths.has(death.deathId)) {
         processedDeaths.add(death.deathId);
@@ -87,7 +104,7 @@ async function checkLatestDeaths(client) {
           .setColor('#FF0000')
           .setTitle('☠️ Muerte Detectada — Eldrian')
           .setDescription(`**${death.description}**`)
-          .setFooter({ text: `Fecha/Hora: ${death.time} | Rubinot` })
+          .setFooter({ text: 'Rubinot Watcher' })
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
