@@ -8,32 +8,26 @@ async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
   const apiKey = process.env.SCRAPER_API_KEY;
 
-  if (!channelId || !apiKey) return;
+  if (!channelId || !apiKey) {
+    console.log('❌ Faltan variables de entorno DEATHS_CHANNEL_ID o SCRAPER_API_KEY.');
+    return;
+  }
 
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    // URL original objetivo de Rubinot
-    const targetUrl = encodeURIComponent('https://rubinot.com.br/deaths');
+    // URL estructurada con los filtros exactos que usa la web
+    const targetUrl = encodeURIComponent('https://rubinot.com.br/deaths?world=Eldrian&guild=&min_level=0&death_type=all');
     const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${targetUrl}`;
 
-    // Enviamos una petición POST simulando la selección de "Eldrian" en el formulario
-    const response = await axios.post(proxyUrl, new URLSearchParams({
-      'world': 'Eldrian',
-      'guild': '',
-      'min_level': '0',
-      'death_type': 'all'
-    }).toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    });
+    console.log('🔍 Consultando muertes de Eldrian en Rubinot...');
+    const { data: html } = await axios.get(proxyUrl);
 
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(html);
     const newDeaths = [];
 
-    // Recorremos las filas de la tabla principal
+    // Recorremos las filas de la tabla
     $('table tr').each((index, element) => {
       const columns = $(element).find('td');
       if (columns.length >= 2) {
@@ -41,8 +35,8 @@ async function checkLatestDeaths(client) {
         const description = $(columns[1]).text().trim();
         const deathId = `${time}_${description}`;
 
-        // Filtramos encabezados o textos vacíos
-        if (description && description.includes('murió') || description.includes('died')) {
+        // Validar que la descripción corresponda a un registro de muerte válido
+        if (description && (description.includes('murió') || description.includes('died') || description.includes('nivel'))) {
           newDeaths.push({ deathId, time, description });
         }
       }
@@ -50,14 +44,14 @@ async function checkLatestDeaths(client) {
 
     console.log(`📊 Muertes obtenidas para Eldrian: ${newDeaths.length}`);
 
-    // Si es la primera ejecución, memoriza las existentes
+    // Primera ejecución: guarda las muertes actuales para no spammear
     if (processedDeaths.size === 0 && newDeaths.length > 0) {
       newDeaths.forEach(d => processedDeaths.add(d.deathId));
-      console.log('✅ Historial inicial memorizado.');
+      console.log('✅ Historial inicial memorizado correctamente.');
       return;
     }
 
-    // Publica solo las muertes que no han sido enviadas antes
+    // Envío a Discord de las muertes nuevas
     for (const death of newDeaths.reverse()) {
       if (!processedDeaths.has(death.deathId)) {
         processedDeaths.add(death.deathId);
@@ -70,7 +64,7 @@ async function checkLatestDeaths(client) {
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
-        console.log(`🚀 Enviada a Discord: ${death.description}`);
+        console.log(`🚀 Notificación enviada a Discord: ${death.description}`);
       }
     }
 
