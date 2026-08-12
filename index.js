@@ -96,7 +96,7 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 // Un solo evento 'ready' corregido
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`🤖 Bot iniciado como: ${client.user.tag}`);
   
   try {
