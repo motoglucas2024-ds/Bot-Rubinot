@@ -1,62 +1,72 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const { EmbedBuilder } = require('discord.js');
 
 const processedDeaths = new Set();
 
 async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
-  const apiKey = process.env.SCRAPER_API_KEY;
+  if (!channelId) return;
 
-  if (!channelId || !apiKey) return;
+  let browser = null;
 
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    // Forzamos la URL exacta encoded y activamos renderizado dinámico ligero
-    const targetUrl = encodeURIComponent('https://rubinot.com.br/deaths?world=Eldrian');
-    const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${targetUrl}&render=true&country_code=us`;
-
-    console.log('🔍 Consultando muertes de Eldrian en Rubinot...');
-    const { data: html } = await axios.get(proxyUrl, { timeout: 30000 });
-
-    const $ = cheerio.load(html);
-    const newDeaths = [];
-
-    // Buscamos cualquier fila de tabla en el HTML renderizado
-    $('table tr, div.table-row, .death-row').each((_, element) => {
-      const text = $(element).text().trim().replace(/\s+/g, ' ');
-      
-      // Si el texto de la fila incluye patrones de muerte en Rubinot
-      if (text.includes('murió') || text.includes('died') || text.includes('nivel') || text.includes('level')) {
-        const columns = $(element).find('td, div');
-        let time = 'Reciente';
-        let description = text;
-
-        if (columns.length >= 2) {
-          time = $(columns[0]).text().trim();
-          description = $(columns[1]).text().trim().replace(/\s+/g, ' ');
-        }
-
-        const deathId = `${time}_${description}`;
-        if (description && description.length > 10) {
-          newDeaths.push({ deathId, time, description });
-        }
-      }
+    console.log('🔍 Iniciando navegador headless...');
+    
+    // Iniciar Puppeteer con flags para compatibilidad en servidores Linux/Render
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     });
 
-    console.log(`📊 Muertes obtenidas para Eldrian: ${newDeaths.length}`);
+    const page = await browser.newPage();
+    
+    // Configurar User-Agent de navegador real
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-    // Si es la primera ejecución y encuentra datos, memoriza el estado actual
-    if (processedDeaths.size === 0 && newDeaths.length > 0) {
-      newDeaths.forEach(d => processedDeaths.add(d.deathId));
-      console.log('✅ Historial inicial memorizado correctamente.');
+    console.log('🌐 Navegando a Rubinot Deaths...');
+    await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 45000 });
+
+    // Seleccionar el mundo Eldrian si existe el selector
+    const selectExists = await page.$('select');
+    if (selectExists) {
+      await page.select('select', 'Eldrian').catch(() => {});
+      await page.waitForTimeout(2000); // Esperar a que refresque los datos
+    }
+
+    // Extraer datos de la tabla directamente desde el navegador
+    const deaths = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('table tr'));
+      const result = [];
+
+      rows.forEach((row, index) => {
+        if (index === 0) return; // Saltar encabezado
+        const cols = row.querySelectorAll('td');
+        if (cols.length >= 2) {
+          const time = cols[0].innerText.trim();
+          const description = cols[1].innerText.trim();
+          if (description) {
+            result.push({ time, description, deathId: `${time}_${description}` });
+          }
+        }
+      });
+
+      return result;
+    });
+
+    console.log(`📊 Muertes obtenidas con Puppeteer: ${deaths.length}`);
+
+    // Si es el primer arranque, guardar historial para evitar spam
+    if (processedDeaths.size === 0 && deaths.length > 0) {
+      deaths.forEach(d => processedDeaths.add(d.deathId));
+      console.log('✅ Historial inicial memorizado.');
       return;
     }
 
-    // Publicamos únicamente las muertes nuevas
-    for (const death of newDeaths.reverse()) {
+    // Notificar las nuevas muertes
+    for (const death of deaths.reverse()) {
       if (!processedDeaths.has(death.deathId)) {
         processedDeaths.add(death.deathId);
 
@@ -68,18 +78,21 @@ async function checkLatestDeaths(client) {
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
-        console.log(`🚀 Notificación enviada a Discord: ${death.description}`);
+        console.log(`🚀 Enviada a Discord: ${death.description}`);
       }
     }
 
   } catch (error) {
-    console.error('Error al consultar muertes:', error.message);
+    console.error('Error al consultar muertes con Puppeteer:', error.message);
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
 function startDeathsWatcher(client) {
   checkLatestDeaths(client);
-  // Revisamos cada 60 segundos
   setInterval(() => checkLatestDeaths(client), 60000);
 }
 
