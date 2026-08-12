@@ -1,15 +1,16 @@
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const chromium = require('@sparticuz/chromium');
 const { EmbedBuilder } = require('discord.js');
+
+// Activar plugin para omitir protecciones de bots
+puppeteer.use(StealthPlugin());
 
 const processedDeaths = new Set();
 
 async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
-  if (!channelId) {
-    console.log('❌ Falta la variable DEATHS_CHANNEL_ID en el entorno.');
-    return;
-  }
+  if (!channelId) return;
 
   let browser = null;
 
@@ -17,62 +18,47 @@ async function checkLatestDeaths(client) {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    console.log('🔍 Iniciando navegador Puppeteer (Core + Chromium)...');
-
     browser = await puppeteer.launch({
-      args: chromium.args,
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled'
+      ],
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
     });
 
     const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
 
-    console.log('🌐 Accediendo a Rubinot Deaths...');
-    // Intentar entrar enviando el parámetro por URL directamente
-    await page.goto('https://rubinot.com.br/deaths?world=Eldrian', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    // Sobrescribir User-Agent para simular un navegador real
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+    );
 
-    // Esperar a que la página base cargue
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Si existe el desplegable, cambiarlo y forzar el evento CHANGE
-    await page.evaluate(() => {
-      const selects = Array.from(document.querySelectorAll('select'));
-      selects.forEach(select => {
-        for (let option of select.options) {
-          if (option.text.toLowerCase().includes('eldrian') || option.value.toLowerCase().includes('eldrian')) {
-            select.value = option.value;
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-            break;
-          }
-        }
-      });
+    // Navegar directamente a la página que renderiza las muertes (HTML procesado)
+    await page.goto('https://rubinot.com.br/deaths?world=Eldrian', {
+      waitUntil: 'networkidle2',
+      timeout: 60000
     });
 
-    // Esperar 4 segundos a que la tabla se re-renderice
-    await new Promise(r => setTimeout(r, 4000));
+    // Esperar a la tabla
+    await page.waitForSelector('table, tr', { timeout: 15000 }).catch(() => {});
 
-    // Extraer cualquier fila, celda o lista relevante de la pantalla
+    // Extraer muertes del DOM
     const deaths = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('table tr'));
       const result = [];
-      
-      // Buscar en cualquier elemento que contenga texto de muertes
-      const allElements = Array.from(document.querySelectorAll('table tr, tr, .row, .list-group-item, div'));
 
-      allElements.forEach(el => {
-        // Solo tomar nodos hoja o elementos con texto directo
-        const text = el.innerText ? el.innerText.trim() : '';
-        
-        // Criterio de filtrado de muerte en Rubinot/Tibia
-        if (text && (text.includes('Died at') || text.includes('Killed at') || text.includes('murió a nivel') || text.includes('died at level'))) {
-          // Limpiar saltos de línea excesivos
-          const cleanText = text.replace(/\s+/g, ' ');
-          
-          // Evitar guardar duplicados de contenedores padre
-          if (!result.some(r => r.description.includes(cleanText))) {
-            const deathId = cleanText;
-            result.push({ time: 'Reciente', description: cleanText, deathId });
+      rows.forEach((row, index) => {
+        if (index === 0) return; // Ignorar cabecera
+        const cols = row.querySelectorAll('td');
+        if (cols.length >= 2) {
+          const time = cols[0].innerText.trim();
+          const description = cols[1].innerText.trim();
+          if (description) {
+            result.push({ time, description, deathId: `${time}_${description}` });
           }
         }
       });
@@ -80,22 +66,13 @@ async function checkLatestDeaths(client) {
       return result;
     });
 
-    console.log(`📊 Muertes obtenidas con Puppeteer: ${deaths.length}`);
-
-    // Si no encontró nada con el filtro escrito, imprimir un fragmento para depuración
-    if (deaths.length === 0) {
-      const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300));
-      console.log('⚠️ No se detectaron muertes. Vista previa del texto de la página:', bodyText.replace(/\s+/g, ' '));
-    }
-
-    // Inicializar memoria en el primer ciclo
+    // Ignorar primera corrida para no spammear el canal con el historial viejo
     if (processedDeaths.size === 0 && deaths.length > 0) {
       deaths.forEach(d => processedDeaths.add(d.deathId));
-      console.log('✅ Historial inicial de muertes memorizado correctamente.');
       return;
     }
 
-    // Enviar las muertes nuevas a Discord
+    // Enviar alertas de nuevas muertes
     for (const death of deaths.reverse()) {
       if (!processedDeaths.has(death.deathId)) {
         processedDeaths.add(death.deathId);
@@ -104,26 +81,23 @@ async function checkLatestDeaths(client) {
           .setColor('#FF0000')
           .setTitle('☠️ Muerte Detectada — Eldrian')
           .setDescription(`**${death.description}**`)
-          .setFooter({ text: 'Rubinot Watcher' })
+          .setFooter({ text: `Hora: ${death.time} | RubinOT` })
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
-        console.log(`🚀 Notificación enviada a Discord: ${death.description}`);
       }
     }
 
   } catch (error) {
-    console.error('Error durante la ejecución de Puppeteer:', error.message);
+    console.error('Error al obtener muertes:', error.message);
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (browser) await browser.close();
   }
 }
 
 function startDeathsWatcher(client) {
   checkLatestDeaths(client);
-  setInterval(() => checkLatestDeaths(client), 60000);
+  setInterval(() => checkLatestDeaths(client), 60000); // Revisar cada 1 minuto
 }
 
 module.exports = { startDeathsWatcher };
