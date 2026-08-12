@@ -18,9 +18,8 @@ async function checkLatestDeaths(client) {
 
     console.log('🔍 Iniciando navegador Puppeteer...');
 
-    // Puppeteer detecta automáticamente la ruta configurada mediante PUPPETEER_CACHE_DIR
+    // Puppeteer tomará la ruta automáticamente desde process.env.PUPPETEER_CACHE_DIR
     browser = await puppeteer.launch({
-      executablePath: puppeteer.executablePath(),
       headless: 'new',
       args: [
         '--no-sandbox',
@@ -36,14 +35,12 @@ async function checkLatestDeaths(client) {
     console.log('🌐 Accediendo a Rubinot Deaths...');
     await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Seleccionar el mundo Eldrian si existe selector
     const hasSelect = await page.$('select');
     if (hasSelect) {
       await page.select('select', 'Eldrian').catch(() => {});
       await new Promise(r => setTimeout(r, 3000));
     }
 
-    // Extraer datos directamente de la tabla en el navegador
     const deaths = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr'));
       const result = [];
@@ -83,7 +80,7 @@ async function checkLatestDeaths(client) {
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
-        console.log(`🚀 Notificación de muerte enviada a Discord: ${death.description}`);
+        console.log(`🚀 Notificación enviada a Discord: ${death.description}`);
       }
     }
 
