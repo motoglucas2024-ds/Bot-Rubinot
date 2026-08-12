@@ -1,9 +1,6 @@
-const puppeteer = require('puppeteer');
-const path = require('path');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const { EmbedBuilder } = require('discord.js');
-
-// Configurar la ruta absoluta exacta del proyecto
-process.env.PUPPETEER_CACHE_DIR = path.resolve(__dirname, '.cache', 'puppeteer');
 
 const processedDeaths = new Set();
 
@@ -20,16 +17,13 @@ async function checkLatestDeaths(client) {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    console.log('🔍 Iniciando navegador Puppeteer...');
+    console.log('🔍 Iniciando navegador Puppeteer (Core + Chromium)...');
 
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ]
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
