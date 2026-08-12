@@ -2,8 +2,8 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 
-// Forzar la ruta de la caché hacia la carpeta del proyecto
-process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '.cache', 'puppeteer');
+// Configurar la ruta absoluta exacta del proyecto
+process.env.PUPPETEER_CACHE_DIR = path.resolve(__dirname, '.cache', 'puppeteer');
 
 const processedDeaths = new Set();
 
