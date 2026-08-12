@@ -102,6 +102,33 @@ client.once('clientReady', async () => {
   // Limpieza y refresco cada 2 minutos
   setInterval(refreshChannelDashboard, 120000);
 });
+// Añade este comando dentro de la lista 'commands' en index.js:
+new SlashCommandBuilder()
+  .setName('ayuda')
+  .setDescription('Muestra la guía de uso y comandos del bot de claims')
+
+// Y añade este bloque dentro del evento 'interactionCreate':
+if (commandName === 'ayuda') {
+  const helpEmbed = new EmbedBuilder()
+    .setColor('#FFA500')
+    .setTitle('📖 GUÍA DE USO - BOT DE RESPAWNS')
+    .setDescription('Sistema de organización de cuevas para Tibia.')
+    .addFields(
+      { 
+        name: '🛠️ Comandos Disponibles', 
+        value: '`/claim [id]` - Reclama una cueva por 2 horas.\n`/unclaim [id]` - Libera tu cueva antes de tiempo.\n`/claims` - Actualiza y muestra las cuevas activas.\n`/ayuda` - Muestra este menú.' 
+      },
+      { 
+        name: '📌 ¿Cómo buscar las numeraciones?', 
+        value: 'Revisa el canal de texto correspondiente a la lista de cuevas para ver el número exacto (ejemplo: `123` para Kilmaresh Catacombs).' 
+      }
+    )
+    .setFooter({ text: 'No Mercy Bot' });
+
+  return interaction.reply({ embeds: [helpEmbed], ephemeral: true });
+}
+
+
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
