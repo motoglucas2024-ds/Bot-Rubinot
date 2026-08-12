@@ -1,11 +1,15 @@
 const puppeteer = require('puppeteer');
+const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 
 const processedDeaths = new Set();
 
 async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
-  if (!channelId) return;
+  if (!channelId) {
+    console.log('❌ Falta la variable DEATHS_CHANNEL_ID.');
+    return;
+  }
 
   let browser = null;
 
@@ -13,41 +17,47 @@ async function checkLatestDeaths(client) {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    console.log('🔍 Iniciando navegador headless...');
-    
-    // Iniciar Puppeteer con flags para compatibilidad en servidores Linux/Render
+    console.log('🔍 Iniciando navegador Puppeteer...');
+
+    // Ruta exacta donde se instaló Chrome en el servidor
+    const chromePath = '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome';
+
     browser = await puppeteer.launch({
+      executablePath: chromePath,
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ]
     });
 
     const page = await browser.newPage();
-    
-    // Configurar User-Agent de navegador real
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36');
 
-    console.log('🌐 Navegando a Rubinot Deaths...');
-    await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 45000 });
+    console.log('🌐 Accediendo a Rubinot Deaths...');
+    await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Seleccionar el mundo Eldrian si existe el selector
-    const selectExists = await page.$('select');
-    if (selectExists) {
+    // Intentar seleccionar el mundo Eldrian si existe un formulario/select
+    const hasSelect = await page.$('select');
+    if (hasSelect) {
       await page.select('select', 'Eldrian').catch(() => {});
-      await page.waitForTimeout(2000); // Esperar a que refresque los datos
+      await new Promise(r => setTimeout(r, 3000));
     }
 
-    // Extraer datos de la tabla directamente desde el navegador
+    // Extraer datos directamente del navegador cargado
     const deaths = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr'));
       const result = [];
 
       rows.forEach((row, index) => {
-        if (index === 0) return; // Saltar encabezado
+        if (index === 0) return;
         const cols = row.querySelectorAll('td');
         if (cols.length >= 2) {
           const time = cols[0].innerText.trim();
           const description = cols[1].innerText.trim();
-          if (description) {
+          if (description && (description.includes('murió') || description.includes('died') || description.includes('nivel'))) {
             result.push({ time, description, deathId: `${time}_${description}` });
           }
         }
@@ -58,14 +68,12 @@ async function checkLatestDeaths(client) {
 
     console.log(`📊 Muertes obtenidas con Puppeteer: ${deaths.length}`);
 
-    // Si es el primer arranque, guardar historial para evitar spam
     if (processedDeaths.size === 0 && deaths.length > 0) {
       deaths.forEach(d => processedDeaths.add(d.deathId));
-      console.log('✅ Historial inicial memorizado.');
+      console.log('✅ Historial inicial de muertes memorizado correctamente.');
       return;
     }
 
-    // Notificar las nuevas muertes
     for (const death of deaths.reverse()) {
       if (!processedDeaths.has(death.deathId)) {
         processedDeaths.add(death.deathId);
@@ -78,12 +86,12 @@ async function checkLatestDeaths(client) {
           .setTimestamp();
 
         await channel.send({ embeds: [embed] });
-        console.log(`🚀 Enviada a Discord: ${death.description}`);
+        console.log(`🚀 Notificación de muerte enviada a Discord: ${death.description}`);
       }
     }
 
   } catch (error) {
-    console.error('Error al consultar muertes con Puppeteer:', error.message);
+    console.error('Error durante la ejecución de Puppeteer:', error.message);
   } finally {
     if (browser) {
       await browser.close();
