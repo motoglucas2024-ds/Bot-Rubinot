@@ -1,15 +1,16 @@
 const puppeteer = require('puppeteer');
+const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 
-// Forzar la ruta de la caché de Puppeteer en tiempo de ejecución
-process.env.PUPPETEER_CACHE_DIR = '/opt/render/.cache/puppeteer';
+// Forzar la ruta de la caché hacia la carpeta del proyecto
+process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '.cache', 'puppeteer');
 
 const processedDeaths = new Set();
 
 async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
   if (!channelId) {
-    console.log('❌ Falta la variable DEATHS_CHANNEL_ID.');
+    console.log('❌ Falta la variable DEATHS_CHANNEL_ID en el entorno.');
     return;
   }
 
@@ -37,14 +38,12 @@ async function checkLatestDeaths(client) {
     console.log('🌐 Accediendo a Rubinot Deaths...');
     await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Seleccionar Eldrian si el dropdown está presente
     const hasSelect = await page.$('select');
     if (hasSelect) {
       await page.select('select', 'Eldrian').catch(() => {});
       await new Promise(r => setTimeout(r, 3000));
     }
 
-    // Extraer datos de la tabla renderizada
     const deaths = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr'));
       const result = [];
