@@ -95,26 +95,25 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-client.once('clientReady', async () => {
+// Un solo evento 'ready' corregido
+client.once('ready', async () => {
   console.log(`🤖 Bot iniciado como: ${client.user.tag}`);
-  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+  
+  try {
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+    console.log('✅ Comandos / cargados con éxito.');
+  } catch (e) {
+    console.error('Error registrando comandos:', e);
+  }
+
   await refreshChannelDashboard();
   
   // Limpieza y refresco cada 2 minutos
   setInterval(refreshChannelDashboard, 120000);
-});
 
-client.once('clientReady', async () => {
-  console.log(`🤖 Bot iniciado como: ${client.user.tag}`);
-  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-  await refreshChannelDashboard();
-  setInterval(refreshChannelDashboard, 30000);
-
-  // Iniciar el vigilante de muertes
+  // Iniciar la vigilancia de muertes con Puppeteer
   startDeathsWatcher(client);
 });
-
-
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -167,7 +166,6 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (commandName === 'claims') {
-    // Muestra el resumen directamente al usuario y refresca la lista fija
     await interaction.reply({ embeds: [buildClaimsEmbed()] });
     return refreshChannelDashboard();
   }
