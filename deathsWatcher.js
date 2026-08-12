@@ -1,5 +1,4 @@
 const puppeteer = require('puppeteer');
-const path = require('path');
 const { EmbedBuilder } = require('discord.js');
 
 const processedDeaths = new Set();
@@ -7,7 +6,7 @@ const processedDeaths = new Set();
 async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
   if (!channelId) {
-    console.log('❌ Falta la variable DEATHS_CHANNEL_ID.');
+    console.log('❌ Falta la variable DEATHS_CHANNEL_ID en el entorno.');
     return;
   }
 
@@ -19,11 +18,9 @@ async function checkLatestDeaths(client) {
 
     console.log('🔍 Iniciando navegador Puppeteer...');
 
-    // Ruta exacta donde se instaló Chrome en el servidor
-    const chromePath = '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome';
-
+    // Puppeteer detecta automáticamente la ruta configurada mediante PUPPETEER_CACHE_DIR
     browser = await puppeteer.launch({
-      executablePath: chromePath,
+      executablePath: puppeteer.executablePath(),
       headless: 'new',
       args: [
         '--no-sandbox',
@@ -39,14 +36,14 @@ async function checkLatestDeaths(client) {
     console.log('🌐 Accediendo a Rubinot Deaths...');
     await page.goto('https://rubinot.com.br/deaths', { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // Intentar seleccionar el mundo Eldrian si existe un formulario/select
+    // Seleccionar el mundo Eldrian si existe selector
     const hasSelect = await page.$('select');
     if (hasSelect) {
       await page.select('select', 'Eldrian').catch(() => {});
       await new Promise(r => setTimeout(r, 3000));
     }
 
-    // Extraer datos directamente del navegador cargado
+    // Extraer datos directamente de la tabla en el navegador
     const deaths = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr'));
       const result = [];
