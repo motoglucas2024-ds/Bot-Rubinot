@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const respawns = require('./respawns');
+const { startDeathsWatcher } = require('./deathsWatcher');
 
 // Servidor Web para Render (mantener activo gratis)
 const app = express();
@@ -101,6 +102,16 @@ client.once('clientReady', async () => {
   
   // Limpieza y refresco cada 2 minutos
   setInterval(refreshChannelDashboard, 120000);
+});
+
+client.once('clientReady', async () => {
+  console.log(`🤖 Bot iniciado como: ${client.user.tag}`);
+  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+  await refreshChannelDashboard();
+  setInterval(refreshChannelDashboard, 30000);
+
+  // Iniciar el vigilante de muertes
+  startDeathsWatcher(client);
 });
 
 
