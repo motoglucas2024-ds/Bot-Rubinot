@@ -8,35 +8,31 @@ async function checkLatestDeaths(client) {
   const channelId = process.env.DEATHS_CHANNEL_ID;
   const apiKey = process.env.SCRAPER_API_KEY;
 
-  if (!channelId || !apiKey) {
-    console.log('❌ Faltan variables DEATHS_CHANNEL_ID o SCRAPER_API_KEY.');
-    return;
-  }
+  if (!channelId || !apiKey) return;
 
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return;
 
-    // Petición a la URL de muertes enviando parámetros de Rubinot
+    // Forzamos la URL exacta encoded y activamos renderizado dinámico ligero
     const targetUrl = encodeURIComponent('https://rubinot.com.br/deaths?world=Eldrian');
-    const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${targetUrl}`;
+    const proxyUrl = `http://api.scraperapi.com?api_key=${apiKey}&url=${targetUrl}&render=true&country_code=us`;
 
     console.log('🔍 Consultando muertes de Eldrian en Rubinot...');
-    const { data: html } = await axios.get(proxyUrl);
+    const { data: html } = await axios.get(proxyUrl, { timeout: 30000 });
 
     const $ = cheerio.load(html);
     const newDeaths = [];
 
-    // Recorremos las filas de la tabla buscando texto de nivel o muerte
-    $('tr').each((_, element) => {
-      const rowText = $(element).text().trim().replace(/\s+/g, ' ');
+    // Buscamos cualquier fila de tabla en el HTML renderizado
+    $('table tr, div.table-row, .death-row').each((_, element) => {
+      const text = $(element).text().trim().replace(/\s+/g, ' ');
       
-      // Si la fila contiene palabras clave típicas de la tabla de Rubinot
-      if (rowText.includes('murió') || rowText.includes('died') || rowText.includes('nivel')) {
-        const columns = $(element).find('td');
-        
+      // Si el texto de la fila incluye patrones de muerte en Rubinot
+      if (text.includes('murió') || text.includes('died') || text.includes('nivel') || text.includes('level')) {
+        const columns = $(element).find('td, div');
         let time = 'Reciente';
-        let description = rowText;
+        let description = text;
 
         if (columns.length >= 2) {
           time = $(columns[0]).text().trim();
@@ -44,7 +40,7 @@ async function checkLatestDeaths(client) {
         }
 
         const deathId = `${time}_${description}`;
-        if (description && description.length > 5) {
+        if (description && description.length > 10) {
           newDeaths.push({ deathId, time, description });
         }
       }
@@ -52,7 +48,7 @@ async function checkLatestDeaths(client) {
 
     console.log(`📊 Muertes obtenidas para Eldrian: ${newDeaths.length}`);
 
-    // Si es la primera ejecución, memoriza las existentes para no spammear
+    // Si es la primera ejecución y encuentra datos, memoriza el estado actual
     if (processedDeaths.size === 0 && newDeaths.length > 0) {
       newDeaths.forEach(d => processedDeaths.add(d.deathId));
       console.log('✅ Historial inicial memorizado correctamente.');
@@ -83,7 +79,8 @@ async function checkLatestDeaths(client) {
 
 function startDeathsWatcher(client) {
   checkLatestDeaths(client);
-  setInterval(() => checkLatestDeaths(client), 45000);
+  // Revisamos cada 60 segundos
+  setInterval(() => checkLatestDeaths(client), 60000);
 }
 
 module.exports = { startDeathsWatcher };
